@@ -18,6 +18,7 @@ if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-
 if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
 if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
 if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.us.r-project.org")
 
 # Loading the dataset
 airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
@@ -677,6 +678,43 @@ for(i in levels(words_sentiment$categorized_days)) {
     print
 }
 
+top_words <- words %>%
+  group_by(word) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  slice_max(count, n = 20) %>%
+  pull(word)
+
+words_cp <- words
+words_cp$word[-which(words_cp$word %in% top_words)] <- 0
+
+words_dummy <- dummy_cols(words_cp, select_columns = c("word"))
+
+words_dummy <- words_dummy %>% 
+  group_by(id) %>% 
+  summarize(word_apartment = sum(word_apartment, na.rm = TRUE),
+            word_apt = sum(word_apt, na.rm = TRUE),
+            word_bath = sum(word_bath, na.rm = TRUE),
+            word_beach = sum(word_beach, na.rm = TRUE),
+            word_beautiful = sum(word_beautiful, na.rm = TRUE),
+            word_bed = sum(word_bed, na.rm = TRUE),
+            word_bedroom = sum(word_bedroom, na.rm = TRUE),
+            word_br = sum(word_br, na.rm = TRUE),
+            word_brooklyn = sum(word_brooklyn, na.rm = TRUE),
+            word_condo = sum(word_condo, na.rm = TRUE),
+            word_cozy = sum(word_cozy, na.rm = TRUE),
+            word_home = sum(word_home, na.rm = TRUE),
+            word_house = sum(word_house, na.rm = TRUE),
+            word_modern = sum(word_modern, na.rm = TRUE),
+            word_ocean = sum(word_ocean, na.rm = TRUE),
+            word_park = sum(word_park, na.rm = TRUE),
+            word_private = sum(word_private, na.rm = TRUE),
+            word_spacious = sum(word_spacious, na.rm = TRUE),
+            word_studio = sum(word_studio, na.rm = TRUE),
+            word_view = sum(word_view, na.rm = TRUE), .groups = "drop")
+
+temp <- airbnb %>%
+  inner_join(words_dummy, by = "id")
+
 words <- words %>% 
   left_join(afinn, by = "word") %>%
   rename(sentiment = value)
@@ -685,12 +723,15 @@ id_sentiment <- words %>%
   group_by(id) %>% 
   summarize(sentiment = sum(sentiment, na.rm = TRUE), .groups = "drop")
 
-temp <- airbnb %>%
+temp <- temp %>%
   inner_join(id_sentiment, by = "id") %>%
   select(!(any_of(c("id", "host_id", "name", "host_name"))))
 
 # Normalize
 temp <- BBmisc::normalize(temp, method = "range", range = c(0, 1))
+
+# Turn character columns to factor columns
+temp <- temp %>% mutate_if(is.character, as.factor)
 
 # Taking 20% as test test.
 set.seed(1, sample.kind="Rounding")
@@ -698,7 +739,7 @@ test_indices <- createDataPartition(y = temp$price, times = 1, p = 0.1, list = F
 train <- temp[-test_indices,]
 test <- temp[test_indices,]
 
-rm(afinn, id_sentiment, temp, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices)
+rm(words_cp, words_dummy, afinn, id_sentiment, temp, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices)
 
 ### Modeling Approach ###
 ## Base Model - Mean only ##
@@ -727,14 +768,6 @@ fit_glm <- train(price ~ ., method = "glm", data = train_glm, trControl = contro
 predictions_glm <- predict(fit_glm, test_glm)
 glm_rmse <- RMSE(test_glm$price, predictions_glm)
 
-actual_vs_pred <- data.frame(x = test_glm$price, y = predictions_glm) %>%
-  BBmisc::normalize(method = "range", range = c(min(airbnb$price), max(airbnb$price)))
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
-
 rmse_results <- rmse_results %>%
   add_row(method = "Linear Regression", RMSE = glm_rmse)
 rmse_results %>% knitr::kable()
@@ -744,21 +777,14 @@ train_rt <- train %>%
   select(!(any_of(c("neighbourhood", "state", "region", "city", "age")))) # Removing columns that might cause overfitting
 test_rt <- test %>%
   select(!(any_of(c("neighbourhood", "state", "region", "city", "age"))))
-tune <- data.frame(cp = seq(0, 0.05, len = 25))
+tune <- data.frame(cp = seq(0, 0.005, len = 25))
 train_fit_rt <- train(price ~ ., method = "rpart", data = train_rt, tuneGrid = tune)
+train_fit_rt$bestTune
 ggplot(train_fit_rt)
 fit_rt <- rpart(price ~ ., data = train_rt, control = rpart.control(cp = train_fit_rt$bestTune))
 predictions_rt <- predict(fit_rt, test_rt)
 rt_rmse <- RMSE(test_rt$price, predictions_rt)
 rpart.plot::prp(fit_rt, faclen = 0)
-
-
-actual_vs_pred <- data.frame(x = test_rt$price, y = predictions_rt) %>%
-  BBmisc::normalize(method = "range", range = c(min(airbnb$price), max(airbnb$price)))
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Regression Tree", RMSE = rt_rmse)
@@ -774,27 +800,46 @@ test_rf <- test %>%
   select(!(any_of(c("neighbourhood_group", "neighbourhood", "state", "region", "city", "age"))))
 # First tune the mtry parameter by training on a small subset using a few values.
 control <- trainControl(method = "cv", number = 5)
-tune <- data.frame(mtry = c(1, 2, 3, 4, 5))
+mtry <- round(ncol(train_rf) / 3)
+tune <- data.frame(mtry = seq(mtry - 2, mtry + 2, len = 5))
 train_small_subset <- train_rf %>% sample_n(5000)
 train_fit_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 150,trControl = control, tuneGrid = tune)
 ggplot(train_fit_rf)
 train_fit_rf$bestTune
 # Train the real rf model using the best mtry parameter found.
-train_rf <- train_rf %>% mutate_if(is.character, as.factor)
-test_rf <- test_rf %>% mutate_if(is.character, as.factor)
 fit_rf <- randomForest(price ~ ., data = train_rf, minNode = fit_rf$bestTune$mtry)
 predictions_rf <- predict(fit_rf, test_rf)
 rf_rmse <- RMSE(test_rf$price, predictions_rf)
-
-actual_vs_pred <- data.frame(x = test_rf$price, y = predictions_rf) %>%
-  BBmisc::normalize(method = "range", range = c(min(airbnb$price), max(airbnb$price)))
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Random Forest", RMSE = rf_rmse)
 rmse_results %>% knitr::kable()
 
-# Will try to run the rf model using the neighbourhood_group column.
+
+## Random Forest ##
+# With neighbourhood_group and city #
+# Removing columns that might cause overfitting.
+train_rf <- train %>%
+  select(!(any_of(c("neighbourhood", "state", "region", "age"))))
+test_rf <- test %>%
+  select(!(any_of(c("neighbourhood", "state", "region", "age"))))
+# First tune the mtry parameter by training on a small subset using a few values.
+control <- trainControl(method = "cv", number = 5)
+mtry <- round(ncol(train_rf) / 3)
+tune <- data.frame(mtry = seq(mtry - 2, mtry + 2, len = 5))
+train_small_subset <- train_rf %>% sample_n(5000)
+train_fit_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 150, trControl = control, tuneGrid = tune)
+ggplot(train_fit_rf)
+train_fit_rf$bestTune
+# Train the real rf model using the best mtry parameter found.
+fit_rf <- randomForest(price ~ ., data = train_rf, minNode = fit_rf$bestTune$mtry)
+predictions_rf <- predict(fit_rf, test_rf)
+rf_rmse <- RMSE(test_rf$price, predictions_rf)
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Random Forest with neighbourhood_group and city", RMSE = rf_rmse)
+rmse_results %>% knitr::kable()
+
+
+
+# Show some more statistics about the models created.
