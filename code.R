@@ -18,7 +18,10 @@ if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-
 if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
 if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
 if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
 if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
 
 # Loading the dataset
 airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
@@ -26,18 +29,21 @@ airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
   neighbourhood_group = col_character()
 ))
 
-# Removing all NAs
-airbnb <- na.omit(airbnb)
-
-# Removing locations with price set at 0 since those are probably typos. Prices above 1500 will also be removed, very high prices can be treated as outliers.
+# Removing locations with price set at 0 since those are probably typos.
 indices <- which(airbnb$price == 0)
 airbnb <- airbnb[-indices,]
-airbnb <- airbnb %>%
-  filter(price <= 1500)
+# Changing NAs in neighbourhood_group column to "other".
+airbnb$neighbourhood_group[is.na(airbnb$neighbourhood_group)] <- "other"
+# Changing NAs in reviews_per_month column to 0.
+airbnb$reviews_per_month[is.na(airbnb$reviews_per_month)] <- 0
 
-# Converting last_review column to days since last review
+# Converting last_review column to numeric
 airbnb <- airbnb %>%
-  mutate(last_review = as.numeric(make_date(2020, 10, 20)) - as.numeric(as.Date(airbnb$last_review, "%d/%m/%y")))
+  mutate(last_review = as.numeric(as.Date(airbnb$last_review, "%d/%m/%y")))
+airbnb$last_review[is.na(airbnb$last_review)] <- 0
+
+# Removing all NAs
+airbnb <- na.omit(airbnb)
 
 # Adding the age column
 airbnb <- airbnb %>%
@@ -54,6 +60,17 @@ airbnb %>%
   ggplot(aes(price)) +
   geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
   scale_x_continuous(name = "Price",trans = "log", breaks = c(1, 10, 100, 1000, 10000)) +
+  ylab("Count") +
+  ggtitle("Price Distribution")
+
+# Get rid of the outliers and work with the log-normally distributed data.
+# Price Distribution
+airbnb <- airbnb %>%
+  filter(price > 15 & price < 1000)
+airbnb %>%
+  ggplot(aes(price)) +
+  geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Price",trans = "log", breaks = c(15, 100, 1000)) +
   ylab("Count") +
   ggtitle("Price Distribution")  
 
@@ -73,18 +90,27 @@ airbnb %>%
   ylab("Count") +
   ggtitle("Reviews Per Month Distribution") 
 
-# Days Since last Review Distribution
+# Last Review Distribution
 airbnb %>%
   ggplot(aes(last_review)) +
-  geom_histogram(bins = 20, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Days",trans = pseudo_log_trans(base = 10), breaks = c(25, 100, 250, 1000, 5000)) +
+  geom_histogram(bins = 25, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Days") +
   ylab("Count") +
-  ggtitle("Number of Days Since Last Reviews Distribution") 
+  ggtitle("Last Review Distribution") 
+
+# Last Review Distribution - without 0's.
+airbnb %>%
+  filter(last_review > 0) %>%
+  ggplot(aes(last_review)) +
+  geom_histogram(bins = 20, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Day") +
+  ylab("Count") +
+  ggtitle("Last Review Distribution") 
 
 # Age Distribution
 airbnb %>%
   ggplot(aes(age)) +
-  geom_histogram(bins = 15, color = "black", fill = "#2e4057") +
+  geom_histogram(bins = 15, color = "black", fill = "#2e4057", na.rm= TRUE) +
   xlab("Age") +
   ylab("Count") +
   ggtitle("Listing Age Distribution") 
@@ -463,6 +489,24 @@ airbnb %>%
   scale_y_continuous(name = "Count", labels = comma) +
   ggtitle("Average Listing Availability by Region")
 
+# The relation between id and age
+airbnb %>%
+  ggplot(aes(id, age)) +
+  geom_point(na.rm = TRUE) +
+  geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
+
+# The relation between host_id and age
+airbnb %>%
+  ggplot(aes(host_id, age)) +
+  geom_point(na.rm = TRUE) +
+  geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
+
+# The relation between host_id and calculated_host_listings_count
+airbnb %>%
+  ggplot(aes(host_id, calculated_host_listings_count)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm')
+
 # Text analysis
 words <- airbnb %>%
   unnest_tokens(word, name) %>%
@@ -522,7 +566,7 @@ for(i in levels(words$categorized_num_reviews)) {
 
 # Top 10 Words by Price
 words <- words %>%
-  mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
+  mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33, na.rm =), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
 for(i in levels(words$categorized_price)) {
   print(i)
   words %>%
@@ -535,7 +579,7 @@ for(i in levels(words$categorized_price)) {
 
 # Top 10 Words by Age
 words <- words %>%
-  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33), quantile(age, 0.67), Inf), labels=c("Young","Medium","Old")))
+  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
 for(i in levels(words$categorized_age)) {
   print(i)
   words %>%
@@ -546,10 +590,10 @@ for(i in levels(words$categorized_age)) {
     print
 }
 
-# Top 10 Words by Days Since Last Review
+# Top 10 Words by Last Review
 words <- words %>%
-  mutate(categorized_days = cut(last_review, breaks=c(-Inf,  quantile(last_review, 0.33), quantile(last_review, 0.67), Inf),
-                                labels=c("Recently","Medium","Long Ago")))
+  mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf),
+                                labels=c("No reviews", "Recently","Medium","Long Ago")))
 for(i in levels(words$categorized_days)) {
   print(i)
   words %>%
@@ -645,7 +689,7 @@ for(i in levels(words_sentiment$categorized_price)) {
 
 # Top 10 Sentiment Words by Age
 words_sentiment <- words_sentiment %>%
-  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33), quantile(age, 0.67), Inf), labels=c("Young","Medium","Old")))
+  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
 for(i in levels(words_sentiment$categorized_age)) {
   print(i)
   words_sentiment %>%
@@ -660,10 +704,10 @@ for(i in levels(words_sentiment$categorized_age)) {
     print
 }
 
-# Top 10 Sentiment Words by Days Since Last Review
+# Top 10 Sentiment Words by Last Review
 words_sentiment <- words_sentiment %>%
-  mutate(categorized_days = cut(last_review, breaks=c(-Inf, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf), 
-                                labels=c("Recently","Medium","Long Ago")))
+  mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf), 
+                                labels=c("No reviews", "Recently","Medium","Long Ago")))
 for(i in levels(words_sentiment$categorized_days)) {
   print(i)
   words_sentiment %>%
@@ -699,17 +743,17 @@ words_dummy <- words_dummy %>%
             word_bed = sum(word_bed, na.rm = TRUE),
             word_bedroom = sum(word_bedroom, na.rm = TRUE),
             word_br = sum(word_br, na.rm = TRUE),
-            word_brooklyn = sum(word_brooklyn, na.rm = TRUE),
             word_condo = sum(word_condo, na.rm = TRUE),
             word_cozy = sum(word_cozy, na.rm = TRUE),
+            word_downtown = sum(word_downtown, na.rm = TRUE),
             word_home = sum(word_home, na.rm = TRUE),
             word_house = sum(word_house, na.rm = TRUE),
             word_modern = sum(word_modern, na.rm = TRUE),
             word_ocean = sum(word_ocean, na.rm = TRUE),
-            word_park = sum(word_park, na.rm = TRUE),
             word_private = sum(word_private, na.rm = TRUE),
             word_spacious = sum(word_spacious, na.rm = TRUE),
             word_studio = sum(word_studio, na.rm = TRUE),
+            word_suite = sum(word_suite, na.rm = TRUE),
             word_view = sum(word_view, na.rm = TRUE), .groups = "drop")
 
 temp <- airbnb %>%
@@ -724,8 +768,10 @@ id_sentiment <- words %>%
   summarize(sentiment = sum(sentiment, na.rm = TRUE), .groups = "drop")
 
 temp <- temp %>%
-  inner_join(id_sentiment, by = "id") %>%
-  select(!(any_of(c("id", "host_id", "name", "host_name"))))
+  inner_join(id_sentiment, by = "id")
+temp <- dummy_cols(temp, select_columns = c("neighbourhood_group", "room_type"))
+temp <- temp %>%
+  select(!(any_of(c("name", "host_name", "neighbourhood", "neighbourhood_group", "room_type", "state", "region", "city", "age"))))
 
 # Normalize
 temp <- BBmisc::normalize(temp, method = "range", range = c(0, 1))
@@ -733,13 +779,26 @@ temp <- BBmisc::normalize(temp, method = "range", range = c(0, 1))
 # Turn character columns to factor columns
 temp <- temp %>% mutate_if(is.character, as.factor)
 
+# Removing column with near zero variance since they are not useful.
+nzv <- nearZeroVar(temp)
+if (length(nzv) > 0) {
+  temp <- temp[, -nzv] 
+}
+
+names(temp) <- str_replace_all(names(temp), c(" " = "_", "/" = "_"))
+
 # Taking 20% as test test.
 set.seed(1, sample.kind="Rounding")
 test_indices <- createDataPartition(y = temp$price, times = 1, p = 0.1, list = FALSE)
 train <- temp[-test_indices,]
 test <- temp[test_indices,]
 
-rm(words_cp, words_dummy, afinn, id_sentiment, temp, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices)
+train %>%
+  select_if(is.numeric) %>%
+  cor %>%
+  corrplot(type = "upper", order = "hclust", tl.col = "black", tl.cex = 0.6)
+
+rm(words_cp, words_dummy, afinn, id_sentiment, temp, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices, nzv, top_words)
 
 ### Modeling Approach ###
 ## Base Model - Mean only ##
@@ -755,91 +814,134 @@ rmse_results <- tibble(method = "Average Price Model", RMSE = mu_rmse)
 rmse_results %>% knitr::kable()
 
 ## Linear Regression ##
-train %>%
-  select_if(is.numeric) %>%
-  cor
-
-train_glm <- train %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "city", "age")))) # Removing columns that might cause overfitting
-test_glm <- test %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "city", "age"))))
 control <- trainControl(method = "cv", number = 10)
-fit_glm <- train(price ~ ., method = "glm", data = train_glm, trControl = control)
-predictions_glm <- predict(fit_glm, test_glm)
-glm_rmse <- RMSE(test_glm$price, predictions_glm)
+fit_glm <- train(price ~ ., method = "glm", data = train, trControl = control)
+predictions_glm <- predict(fit_glm, test)
+glm_rmse <- RMSE(test$price, predictions_glm)
+
+actual_vs_pred <- data.frame(x = test$price, y = predictions_glm)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Linear Regression", RMSE = glm_rmse)
 rmse_results %>% knitr::kable()
 
+## KNN ##
+control <- trainControl(method = "cv", number = 5)
+tune <- expand.grid(k = c(3, 5, 9, 15, 21, 29, 41, 55))
+train_small_subset <- train %>% sample_n(10000)
+train_knn <- train(price ~ ., method = "knn", data = train_small_subset, trControl = control, tuneGrid = tune)
+ggplot(train_knn)
+train_knn$bestTune
+fit_knn <- knnreg(price ~ ., data = train, k = train_knn$bestTune)
+predictions_knn <- predict(fit_knn, test)
+knn_rmse <- RMSE(test$price, predictions_knn)
+
+actual_vs_pred <- data.frame(x = test$price, y = predictions_knn)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Knn", RMSE = knn_rmse)
+rmse_results %>% knitr::kable()
+
 ## Regression Tree ##
-train_rt <- train %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "city", "age")))) # Removing columns that might cause overfitting
-test_rt <- test %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "city", "age"))))
-tune <- data.frame(cp = seq(0, 0.005, len = 25))
-train_fit_rt <- train(price ~ ., method = "rpart", data = train_rt, tuneGrid = tune)
-train_fit_rt$bestTune
-ggplot(train_fit_rt)
-fit_rt <- rpart(price ~ ., data = train_rt, control = rpart.control(cp = train_fit_rt$bestTune))
-predictions_rt <- predict(fit_rt, test_rt)
-rt_rmse <- RMSE(test_rt$price, predictions_rt)
+tune <- expand.grid(cp = seq(0, 0.005, len = 25))
+train_rt <- train(price ~ ., method = "rpart", data = train, tuneGrid = tune)
+train_rt$bestTune
+ggplot(train_rt)
+fit_rt <- rpart(price ~ ., data = train, control = rpart.control(cp = train_rt$bestTune))
+predictions_rt <- predict(fit_rt, test)
+rt_rmse <- RMSE(test$price, predictions_rt)
 rpart.plot::prp(fit_rt, faclen = 0)
+
+actual_vs_pred <- data.frame(x = test$price, y = predictions_rt)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Regression Tree", RMSE = rt_rmse)
 rmse_results %>% knitr::kable()
 
 ## Random Forest ##
-# Removing columns that might cause overfitting.
-# The column neighbourhood_groups helped the last 2 algorithms acheive better RMSE scores. 
-# In this case, due to the many values this column has it will cause the rf algorithm to take a very long time.
-train_rf <- train %>%
-  select(!(any_of(c("neighbourhood_group", "neighbourhood", "state", "region", "city", "age"))))
-test_rf <- test %>%
-  select(!(any_of(c("neighbourhood_group", "neighbourhood", "state", "region", "city", "age"))))
 # First tune the mtry parameter by training on a small subset using a few values.
 control <- trainControl(method = "cv", number = 5)
-mtry <- round(ncol(train_rf) / 3)
-tune <- data.frame(mtry = seq(mtry - 2, mtry + 2, len = 5))
-train_small_subset <- train_rf %>% sample_n(5000)
-train_fit_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 150,trControl = control, tuneGrid = tune)
-ggplot(train_fit_rf)
-train_fit_rf$bestTune
-# Train the real rf model using the best mtry parameter found.
-fit_rf <- randomForest(price ~ ., data = train_rf, minNode = fit_rf$bestTune$mtry)
-predictions_rf <- predict(fit_rf, test_rf)
-rf_rmse <- RMSE(test_rf$price, predictions_rf)
+mtry <- round(ncol(train) / 3)
+tune <- expand.grid(mtry = seq(mtry - 3, mtry + 3, len = 7))
+train_small_subset <- train %>% sample_n(10000)
+train_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 100, trControl = control, tuneGrid = tune)
+ggplot(train_rf)
+train_rf$bestTune
+fit_rf <- randomForest(price ~ ., data = train, minNode = fit_rf$bestTune$mtry, ntree = 100)
+predictions_rf <- predict(fit_rf, test)
+rf_rmse <- RMSE(test$price, predictions_rf)
+
+actual_vs_pred <- data.frame(x = test$price, y = predictions_rf)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Random Forest", RMSE = rf_rmse)
 rmse_results %>% knitr::kable()
 
+## Ensembles ##
+ensemble_train <- tibble(price = train$price, glm_predictions = predict(fit_glm, train), knn_predictions = predict(fit_knn, train),
+                         rt_predictions = predict(fit_rt, train), rf_predictions = predict(fit_rf, train))
+ensemble_test <- tibble(price = test$price, glm_predictions = predictions_glm, knn_predictions = predictions_knn,
+                        rt_predictions = predictions_rt, rf_predictions = predictions_rf)
 
-## Random Forest ##
-# With neighbourhood_group and city #
-# Removing columns that might cause overfitting.
-train_rf <- train %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "age"))))
-test_rf <- test %>%
-  select(!(any_of(c("neighbourhood", "state", "region", "age"))))
-# First tune the mtry parameter by training on a small subset using a few values.
-control <- trainControl(method = "cv", number = 5)
-mtry <- round(ncol(train_rf) / 3)
-tune <- data.frame(mtry = seq(mtry - 2, mtry + 2, len = 5))
-train_small_subset <- train_rf %>% sample_n(5000)
-train_fit_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 150, trControl = control, tuneGrid = tune)
-ggplot(train_fit_rf)
-train_fit_rf$bestTune
-# Train the real rf model using the best mtry parameter found.
-fit_rf <- randomForest(price ~ ., data = train_rf, minNode = fit_rf$bestTune$mtry)
-predictions_rf <- predict(fit_rf, test_rf)
-rf_rmse <- RMSE(test_rf$price, predictions_rf)
+## ANN - nnet ##
+control <- trainControl(method = "cv", number = 10)
+tune <- expand.grid(size = seq(3, 8, len = 6), decay = c(0.01, 0.001, 0.0001))
+train_small_subset <- ensemble_train %>% sample_n(10000)
+train_ann <- train(price ~ ., method = "nnet", data = train_small_subset, trControl = control, tuneGrid = tune, linout = TRUE, maxit = 200)
+ggplot(train_ann)
+train_ann$bestTune
+fit_ann <- nnet(price ~ ., data = ensemble_train, size = train_ann$bestTune$size, decay = train_ann$bestTune$decay, linout = TRUE, maxit = 1000)
+predictions_ann <- predict(fit_ann, ensemble_test)
+ann_rmse <- RMSE(ensemble_test$price, predictions_ann)
+
+actual_vs_pred <- data.frame(x = ensemble_test$price, y = predictions_ann)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
-  add_row(method = "Random Forest with neighbourhood_group and city", RMSE = rf_rmse)
+  add_row(method = "ANN", RMSE = ann_rmse)
 rmse_results %>% knitr::kable()
 
+## ANN - neuralnet ##
+tune <- expand.grid(layer1 = seq(4, 6, len = 3), layer2 = seq(4, 6, len = 3))
+train_small_subset <- ensemble_train %>% sample_n(10000)
+train_ann <- train(price ~ ., method = "neuralnet", data = train_small_subset, tuneGrid = tune, linear.output = TRUE)
+ggplot(train_ann)
+train_ann$bestTune
+fit_ann <- neuralnet(price ~ ., data = ensemble_train, hidden = c(train_ann$bestTune$layer1, train_ann$bestTune$layer2), linear.output = TRUE)
+predictions_ann <- predict(fit_ann, ensemble_test)
+ann_rmse <- RMSE(ensemble_test$price, predictions_ann)
 
+actual_vs_pred <- data.frame(x = ensemble_test$price, y = predictions_ann)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
 
-# Show some more statistics about the models created.
+rmse_results <- rmse_results %>%
+  add_row(method = "ANN", RMSE = ann_rmse)
+rmse_results %>% knitr::kable()
