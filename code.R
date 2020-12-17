@@ -22,6 +22,7 @@ if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-proj
 if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.us.r-project.org")
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(wordcloud)) install.packages("wordcloud", repos = "http://cran.us.r-project.org")
 
 # Loading the dataset
 airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
@@ -518,17 +519,12 @@ words$word <- str_replace(words$word, pattern = "[^A-Za-z]+", replacement = "") 
 
 words <- words[!words$word == "",]
 
-# Top 10 Words
-words %>%
+# Top Words
+wordcloud <- words %>%
   group_by(word) %>%
   summarize(count = n(), .groups = "drop") %>%
-  slice_max(count, n = 10)
-
-# Bottom 10 Words
-words %>%
-  group_by(word) %>%
-  summarize(count = n(), .groups = "drop") %>%
-  slice_min(count, n = 10)
+  slice_max(count, n = 150)
+wordcloud(wordcloud$word, wordcloud$count)
 
 # Top 10 Words by Room Type
 for(i in na.omit(unique(words$room_type))) {
@@ -831,7 +827,7 @@ ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
   geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Linear Knn") +
+  ggtitle("Knn") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
@@ -903,6 +899,29 @@ ggplot(actual_vs_pred ,aes(x, y)) +
 rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble", RMSE = ensemble_rmse)
 rmse_results %>% knitr::kable()
+
+# # Weighted Average Ensemble
+# train_ensemble <- tibble(linear_regression = predict(fit_lm, train), knn = predict(fit_knn, train), regression_tree = predict(fit_rt, train),
+#                     random_forest = predict(fit_rf, train), price = train$price)
+# test_ensemble <- tibble(linear_regression = predictions_lm, knn = predictions_knn, regression_tree = predictions_rt, random_forest = predictions_rf, price = test$price)
+# 
+# fit_weighted_ensemble <- train(price ~ ., method = "lm", data = train_ensemble, trControl = control)
+# predictions_weighted_ensemble <- predict(fit_weighted_ensemble, test_ensemble)
+# weighted_ensemble_rmse <- RMSE(test_ensemble$price, predictions_weighted_ensemble)
+# 
+# actual_vs_pred <- data.frame(x = test$price, y = predictions_lm)
+# ggplot(actual_vs_pred ,aes(x, y)) +
+#   geom_point() +
+#   geom_smooth(formula = "y ~ x", method='lm') +
+#   geom_abline(slope = 1, intercept = 0, color = "red") +
+#   ggtitle("Weighted Average Ensemble") +
+#   xlab("Actual Prices") +
+#   ylab("Predicted Prices")
+# 
+# rmse_results <- rmse_results %>%
+#   add_row(method = "Weighted Average Ensemble", RMSE = weighted_ensemble_rmse)
+# rmse_results %>% knitr::kable()
+
 
 # A look at the models' predictions using rows with price less than $350.
 low_prices_test <- test %>%
@@ -993,3 +1012,21 @@ ggplot(actual_vs_pred ,aes(x, y)) +
 rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble, low prices", RMSE = ensemble_rmse_low_prices)
 rmse_results %>% knitr::kable()
+
+# # Weighted Average Ensemble
+# low_prices_test_ensemble <- test_ensemble %>% filter(price < 0.35)
+# predictions_weighted_ensemble_low_prices <- predict(fit_weighted_ensemble, low_prices_test_ensemble)
+# weighted_ensemble_rmse_low_prices <- RMSE(low_prices_test_ensemble$price, predictions_weighted_ensemble_low_prices)
+# 
+# actual_vs_pred <- data.frame(x = low_prices_test_ensemble$price, y = predictions_weighted_ensemble_low_prices)
+# ggplot(actual_vs_pred ,aes(x, y)) +
+#   geom_point() +
+#   geom_smooth(formula = "y ~ x", method='lm') +
+#   geom_abline(slope = 1, intercept = 0, color = "red") +
+#   ggtitle("Weighted Average Ensemble") +
+#   xlab("Actual Prices") +
+#   ylab("Predicted Prices")
+# 
+# rmse_results <- rmse_results %>%
+#   add_row(method = "Weighted Average Ensemble, low prices", RMSE = weighted_ensemble_rmse_low_prices)
+# rmse_results %>% knitr::kable()
