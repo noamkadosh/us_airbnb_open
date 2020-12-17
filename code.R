@@ -817,8 +817,7 @@ rmse_results <- rmse_results %>%
 rmse_results %>% knitr::kable()
 
 ## KNN ##
-control <- trainControl(method = "cv", number = 5)
-tune <- expand.grid(k = c(3, 5, 9, 15, 21, 29, 41, 55))
+tune <- expand.grid(k = c(9, 15, 21, 29, 41, 55, 71))
 train_small_subset <- train %>% sample_n(10000)
 train_knn <- train(price ~ ., method = "knn", data = train_small_subset, trControl = control, tuneGrid = tune)
 ggplot(train_knn)
@@ -841,8 +840,8 @@ rmse_results <- rmse_results %>%
 rmse_results %>% knitr::kable()
 
 ## Regression Tree ##
-tune <- expand.grid(cp = seq(0, 0.005, len = 25))
-train_rt <- train(price ~ ., method = "rpart", data = train, tuneGrid = tune)
+tune <- expand.grid(cp = seq(0, 0.0002, len = 7))
+train_rt <- train(price ~ ., method = "rpart", data = train, trControl = control, tuneGrid = tune)
 train_rt$bestTune
 ggplot(train_rt)
 fit_rt <- rpart(price ~ ., data = train, control = rpart.control(cp = train_rt$bestTune))
@@ -865,14 +864,13 @@ rmse_results %>% knitr::kable()
 
 ## Random Forest ##
 # First tune the mtry parameter by training on a small subset using a few values.
-control <- trainControl(method = "cv", number = 5)
 mtry <- round(ncol(train) / 3)
 tune <- expand.grid(mtry = seq(mtry - 3, mtry + 3, len = 7))
 train_small_subset <- train %>% sample_n(10000)
 train_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 100, trControl = control, tuneGrid = tune)
 ggplot(train_rf)
 train_rf$bestTune
-fit_rf <- randomForest(price ~ ., data = train, minNode = fit_rf$bestTune$mtry, ntree = 100)
+fit_rf <- randomForest(price ~ ., data = train, minNode = fit_rf$bestTune$mtry, ntree = 150)
 predictions_rf <- predict(fit_rf, test)
 rf_rmse <- RMSE(test$price, predictions_rf)
 
@@ -906,7 +904,7 @@ rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble", RMSE = ensemble_rmse)
 rmse_results %>% knitr::kable()
 
-# A look at the models' predictions with rows with price less than $350.
+# A look at the models' predictions using rows with price less than $350.
 low_prices_test <- test %>%
   filter(price < 0.35)
 
@@ -979,7 +977,6 @@ rmse_results <- rmse_results %>%
 rmse_results %>% knitr::kable()
 
 # Average Ensemble
-# Random Forest
 predictions_ensemble_low_prices <- (predictions_lm_low_prices + predictions_knn_low_prices +
                                       predictions_rt_low_prices + predictions_rf_low_prices) / 4
 ensemble_rmse_low_prices <- RMSE(low_prices_test$price, predictions_ensemble_low_prices)
