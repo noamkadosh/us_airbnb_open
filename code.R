@@ -41,6 +41,8 @@ airbnb$reviews_per_month[is.na(airbnb$reviews_per_month)] <- 0
 airbnb <- airbnb %>%
   mutate(last_review = as.numeric(as.Date(airbnb$last_review, "%d/%m/%y")))
 airbnb$last_review[is.na(airbnb$last_review)] <- 0
+airbnb <- airbnb %>%
+  filter(minimum_nights < 365)
 
 # Removing all NAs
 airbnb <- na.omit(airbnb)
@@ -63,10 +65,10 @@ airbnb %>%
   ylab("Count") +
   ggtitle("Price Distribution")
 
-# Get rid of the outliers and work with the log-normally distributed data.
+# Get rid of extreme outliers. 
 # Price Distribution
 airbnb <- airbnb %>%
-  filter(price > 15 & price < 1000)
+  filter(price > 10 & price < 1000)
 airbnb %>%
   ggplot(aes(price)) +
   geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
@@ -509,7 +511,7 @@ airbnb %>%
 
 # Text analysis
 words <- airbnb %>%
-  unnest_tokens(word, name) %>%
+  unnest_tokens(word, name, drop = FALSE) %>%
   filter(!word %in% stop_words$word)
 
 words$word <- str_replace(words$word, pattern = "[^A-Za-z]+", replacement = "") # Removing non alphabet characters
@@ -725,39 +727,21 @@ for(i in levels(words_sentiment$categorized_days)) {
 top_words <- words %>%
   group_by(word) %>%
   summarize(count = n(), .groups = "drop") %>%
-  slice_max(count, n = 20) %>%
+  slice_max(count, n = 40) %>%
   pull(word)
 
 words_cp <- words
 words_cp$word[-which(words_cp$word %in% top_words)] <- 0
 
-words_dummy <- dummy_cols(words_cp, select_columns = c("word"))
 
-words_dummy <- words_dummy %>% 
-  group_by(id) %>% 
-  summarize(word_apartment = sum(word_apartment, na.rm = TRUE),
-            word_apt = sum(word_apt, na.rm = TRUE),
-            word_bath = sum(word_bath, na.rm = TRUE),
-            word_beach = sum(word_beach, na.rm = TRUE),
-            word_beautiful = sum(word_beautiful, na.rm = TRUE),
-            word_bed = sum(word_bed, na.rm = TRUE),
-            word_bedroom = sum(word_bedroom, na.rm = TRUE),
-            word_br = sum(word_br, na.rm = TRUE),
-            word_condo = sum(word_condo, na.rm = TRUE),
-            word_cozy = sum(word_cozy, na.rm = TRUE),
-            word_downtown = sum(word_downtown, na.rm = TRUE),
-            word_home = sum(word_home, na.rm = TRUE),
-            word_house = sum(word_house, na.rm = TRUE),
-            word_modern = sum(word_modern, na.rm = TRUE),
-            word_ocean = sum(word_ocean, na.rm = TRUE),
-            word_private = sum(word_private, na.rm = TRUE),
-            word_spacious = sum(word_spacious, na.rm = TRUE),
-            word_studio = sum(word_studio, na.rm = TRUE),
-            word_suite = sum(word_suite, na.rm = TRUE),
-            word_view = sum(word_view, na.rm = TRUE), .groups = "drop")
+airbnb <- airbnb %>% mutate(name = tolower(name))
 
-temp <- airbnb %>%
-  inner_join(words_dummy, by = "id")
+# Create a new column for each of the most common words
+for (word in top_words){
+  regex_word <- word
+  col_name <- paste("word", word, sep="_")
+  airbnb <- airbnb %>% mutate(!!col_name := ifelse(grepl(regex_word, name, fixed=TRUE), 1, 0))
+}
 
 words <- words %>% 
   left_join(afinn, by = "word") %>%
@@ -767,38 +751,38 @@ id_sentiment <- words %>%
   group_by(id) %>% 
   summarize(sentiment = sum(sentiment, na.rm = TRUE), .groups = "drop")
 
-temp <- temp %>%
+airbnb <- airbnb %>%
   inner_join(id_sentiment, by = "id")
-temp <- dummy_cols(temp, select_columns = c("neighbourhood_group", "room_type"))
-temp <- temp %>%
-  select(!(any_of(c("name", "host_name", "neighbourhood", "neighbourhood_group", "room_type", "state", "region", "city", "age"))))
+airbnb <- dummy_cols(airbnb, select_columns = c("neighbourhood_group", "room_type", "state", "city"))
+airbnb <- airbnb %>%
+  select(!(any_of(c("id", "name", "host_id", "host_name", "neighbourhood", "neighbourhood_group", "room_type", "state", "region", "city",
+                    "age", "reviews_per_month", "last_review"))))
+names(airbnb) <- str_replace_all(names(airbnb), c(" " = "_", "/" = "_"))
 
 # Normalize
-temp <- BBmisc::normalize(temp, method = "range", range = c(0, 1))
+airbnb <- BBmisc::normalize(airbnb, method = "range", range = c(0, 1))
 
 # Turn character columns to factor columns
-temp <- temp %>% mutate_if(is.character, as.factor)
+airbnb <- airbnb %>% mutate_if(is.character, as.factor)
 
 # Removing column with near zero variance since they are not useful.
-nzv <- nearZeroVar(temp)
+nzv <- nearZeroVar(airbnb, )
 if (length(nzv) > 0) {
-  temp <- temp[, -nzv] 
+  airbnb <- airbnb[, -nzv]
 }
 
-names(temp) <- str_replace_all(names(temp), c(" " = "_", "/" = "_"))
-
-# Taking 20% as test test.
+# Taking 10% as test test.
 set.seed(1, sample.kind="Rounding")
-test_indices <- createDataPartition(y = temp$price, times = 1, p = 0.1, list = FALSE)
-train <- temp[-test_indices,]
-test <- temp[test_indices,]
+test_indices <- createDataPartition(y = airbnb$price, times = 1, p = 0.1, list = FALSE)
+train <- airbnb[-test_indices,]
+test <- airbnb[test_indices,]
 
 train %>%
   select_if(is.numeric) %>%
   cor %>%
   corrplot(type = "upper", order = "hclust", tl.col = "black", tl.cex = 0.6)
 
-rm(words_cp, words_dummy, afinn, id_sentiment, temp, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices, nzv, top_words)
+rm(words_cp, afinn, temp, col_name, regex_word, word, id_sentiment, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices, nzv, top_words)
 
 ### Modeling Approach ###
 ## Base Model - Mean only ##
@@ -815,19 +799,21 @@ rmse_results %>% knitr::kable()
 
 ## Linear Regression ##
 control <- trainControl(method = "cv", number = 10)
-fit_glm <- train(price ~ ., method = "glm", data = train, trControl = control)
-predictions_glm <- predict(fit_glm, test)
-glm_rmse <- RMSE(test$price, predictions_glm)
+fit_lm <- train(price ~ ., method = "lm", data = train, trControl = control)
+predictions_lm <- predict(fit_lm, test)
+lm_rmse <- RMSE(test$price, predictions_lm)
 
-actual_vs_pred <- data.frame(x = test$price, y = predictions_glm)
+actual_vs_pred <- data.frame(x = test$price, y = predictions_lm)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
+  geom_smooth(formula = "y ~ x", method='lm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Linear Regression") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
-  add_row(method = "Linear Regression", RMSE = glm_rmse)
+  add_row(method = "Linear Regression", RMSE = lm_rmse)
 rmse_results %>% knitr::kable()
 
 ## KNN ##
@@ -845,6 +831,8 @@ actual_vs_pred <- data.frame(x = test$price, y = predictions_knn)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Linear Knn") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
@@ -866,6 +854,8 @@ actual_vs_pred <- data.frame(x = test$price, y = predictions_rt)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Regression Tree") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
@@ -890,6 +880,8 @@ actual_vs_pred <- data.frame(x = test$price, y = predictions_rf)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Random Forest") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
@@ -897,51 +889,110 @@ rmse_results <- rmse_results %>%
   add_row(method = "Random Forest", RMSE = rf_rmse)
 rmse_results %>% knitr::kable()
 
-## Ensembles ##
-ensemble_train <- tibble(price = train$price, glm_predictions = predict(fit_glm, train), knn_predictions = predict(fit_knn, train),
-                         rt_predictions = predict(fit_rt, train), rf_predictions = predict(fit_rf, train))
-ensemble_test <- tibble(price = test$price, glm_predictions = predictions_glm, knn_predictions = predictions_knn,
-                        rt_predictions = predictions_rt, rf_predictions = predictions_rf)
+# Average Ensemble
+predictions_ensemble <- (predictions_lm + predictions_knn + predictions_rt + predictions_rf) / 4
+ensemble_rmse <- RMSE(test$price, predictions_ensemble)
 
-## ANN - nnet ##
-control <- trainControl(method = "cv", number = 10)
-tune <- expand.grid(size = seq(3, 8, len = 6), decay = c(0.01, 0.001, 0.0001))
-train_small_subset <- ensemble_train %>% sample_n(10000)
-train_ann <- train(price ~ ., method = "nnet", data = train_small_subset, trControl = control, tuneGrid = tune, linout = TRUE, maxit = 200)
-ggplot(train_ann)
-train_ann$bestTune
-fit_ann <- nnet(price ~ ., data = ensemble_train, size = train_ann$bestTune$size, decay = train_ann$bestTune$decay, linout = TRUE, maxit = 1000)
-predictions_ann <- predict(fit_ann, ensemble_test)
-ann_rmse <- RMSE(ensemble_test$price, predictions_ann)
-
-actual_vs_pred <- data.frame(x = ensemble_test$price, y = predictions_ann)
+actual_vs_pred <- data.frame(x = test$price, y = predictions_ensemble)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Average Ensemble") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
-  add_row(method = "ANN", RMSE = ann_rmse)
+  add_row(method = "Average Ensemble", RMSE = ensemble_rmse)
 rmse_results %>% knitr::kable()
 
-## ANN - neuralnet ##
-tune <- expand.grid(layer1 = seq(4, 6, len = 3), layer2 = seq(4, 6, len = 3))
-train_small_subset <- ensemble_train %>% sample_n(10000)
-train_ann <- train(price ~ ., method = "neuralnet", data = train_small_subset, tuneGrid = tune, linear.output = TRUE)
-ggplot(train_ann)
-train_ann$bestTune
-fit_ann <- neuralnet(price ~ ., data = ensemble_train, hidden = c(train_ann$bestTune$layer1, train_ann$bestTune$layer2), linear.output = TRUE)
-predictions_ann <- predict(fit_ann, ensemble_test)
-ann_rmse <- RMSE(ensemble_test$price, predictions_ann)
+# A look at the models' predictions with rows with price less than $350.
+low_prices_test <- test %>%
+  filter(price < 0.35)
 
-actual_vs_pred <- data.frame(x = ensemble_test$price, y = predictions_ann)
+# Linear Regression
+predictions_lm_low_prices <- predict(fit_lm, low_prices_test)
+lm_rmse_low_prices <- RMSE(low_prices_test$price, predictions_lm_low_prices)
+
+actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_lm_low_prices)
 ggplot(actual_vs_pred ,aes(x, y)) +
   geom_point() +
   geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Linear Regression") +
   xlab("Actual Prices") +
   ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
-  add_row(method = "ANN", RMSE = ann_rmse)
+  add_row(method = "Linear Regression, low prices", RMSE = lm_rmse_low_prices)
+rmse_results %>% knitr::kable()
+
+# KNN
+predictions_knn_low_prices <- predict(fit_knn, low_prices_test)
+knn_rmse_low_prices <- RMSE(low_prices_test$price, predictions_knn_low_prices)
+
+actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_knn_low_prices)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Knn") +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Knn, low prices", RMSE = knn_rmse_low_prices)
+rmse_results %>% knitr::kable()
+
+# Regression Tree
+predictions_rt_low_prices <- predict(fit_rt, low_prices_test)
+rt_rmse_low_prices <- RMSE(low_prices_test$price, predictions_rt_low_prices)
+
+actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_rt_low_prices)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Regression Tree") +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Regression Tree, low prices", RMSE = rt_rmse_low_prices)
+rmse_results %>% knitr::kable()
+
+# Random Forest
+predictions_rf_low_prices <- predict(fit_rf, low_prices_test)
+rf_rmse_low_prices <- RMSE(low_prices_test$price, predictions_rf_low_prices)
+
+actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_rf_low_prices)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Random Forest") +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Random Forest, low prices", RMSE = rf_rmse_low_prices)
+rmse_results %>% knitr::kable()
+
+# Average Ensemble
+# Random Forest
+predictions_ensemble_low_prices <- (predictions_lm_low_prices + predictions_knn_low_prices +
+                                      predictions_rt_low_prices + predictions_rf_low_prices) / 4
+ensemble_rmse_low_prices <- RMSE(low_prices_test$price, predictions_ensemble_low_prices)
+
+actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_ensemble_low_prices)
+ggplot(actual_vs_pred ,aes(x, y)) +
+  geom_point() +
+  geom_smooth(formula = "y ~ x", method='glm') +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  ggtitle("Average Ensemble") +
+  xlab("Actual Prices") +
+  ylab("Predicted Prices")
+
+rmse_results <- rmse_results %>%
+  add_row(method = "Average Ensemble, low prices", RMSE = ensemble_rmse_low_prices)
 rmse_results %>% knitr::kable()
