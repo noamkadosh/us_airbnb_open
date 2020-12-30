@@ -9,26 +9,113 @@ output:
     number_sections: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Overview
+
+This project is part of the HarvardX course PH125.9x Data Science: Capstone project.
+When Airbnb was founded in 2008, the idea of sleeping in other people's house was somewhat strange. Depsite that, Airbnb grew larger each year with increasing number of listings and users each year. There was a real advantage to that idea which was the real catalyst for the company's growth. People understood it is cheaper than the classic approach.
+
+## Project Introduction
+
+In this project I will explore the US Airbnb Open dataset and try to predict the prices of Airbnb listings, both new listings and existing listings. The model can fit a property management company who wants to know the right price of a listings. With the model, a company can find undervalued listings and try to offer them services or purchase the listing.
+The price of listing is a continouos variable. Therefore, regression algorithms are the go to tool. I will train several regression algorithms and one ensemble algorithm. Than, I will measure their performance by the Root Mean Squared Error (RMSE). The goal is to get the RMSE as low as possible.
+
+### Libraries
+```{r libraries, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+# Loading libraries
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
+if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(rpart)) install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(rpart.plot)) install.packages("rpart.plot", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
+if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(wordcloud)) install.packages("wordcloud", repos = "http://cran.us.r-project.org")
 ```
 
-## R Markdown
+## The Data
+The data used for the project is the US Airbnb Open data set, collected by Kritik Seth, a data scientist who collected and published it on Kaggle. The data set contains features such as location, room type, description, number of reviews, minimum nights and more.
+```{r load_data, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+# Loading the data set
+airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
+  neighbourhood = col_character(),
+  neighbourhood_group = col_character()
+))
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+head(airbnb)
+summary(airbnb)
+length(airbnb$price)
+airbnb %>% summarize(num_properties = n_distinct(id), num_hosts = n_distinct(host_id))
 ```
 
-## Including Plots
+### Data Preparation
+We can see that some of the columns contain NAs. We should try and understand why those NAs are there. Looking at the neighbourhood_group column we can infer that those NAs are other neighbourhood_group that are unknown to us. We can transform those NAs to "other".
+When looking at the reviews_per_month and the number_of_reviews columns we can see that the NAs in the reviews_per_month are actually 0. All those NAs have 0 reviews overall.
+We will also filter out listings with minimum nights of more than 365.
+To handle the rest of the NAs in the data, I decided to omit them since they are a very small subset of the data (just about 60 rows).
+Finally, I will add the State column based on the City column.
+```{r data-preparation, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+# Changing NAs in neighbourhood_group column to "other".
+airbnb$neighbourhood_group[is.na(airbnb$neighbourhood_group)] <- "other"
+# Changing NAs in reviews_per_month column to 0.
+airbnb$reviews_per_month[is.na(airbnb$reviews_per_month)] <- 0
+# Filtering listings with more than a year stay minimum.
+airbnb <- airbnb %>%
+  filter(minimum_nights < 365)
+# Removing all NAs
+airbnb <- na.omit(airbnb)
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+# Adding the State column
+temp <- tibble(city = c("Asheville", "Austin", "Boston", "Broward County", "Cambridge", "Chicago", "Clark County", "Columbus", "Denver", "Hawaii",
+                        "Jersey City", "Los Angeles", "Nashville", "New Orleans", "New York City", "Oakland", "Pacific Grove", "Portland", "Rhode Island",
+                        "Salem", "San Clara Country", "Santa Cruz County", "San Diego", "San Francisco", "San Mateo County", "Seattle", "Twin Cities MSA",
+                        "Washington D.C."),
+               state = c("NC", "TX", "MA", "FL", "MA", "IL", "NV", "OH", "CO", "HI", "NJ", "CA", "TN", "LA", "NY", "CA", "CA", "OR", "RI", "MA", "CA",
+                         "CA", "CA", "CA", "CA", "WA", "MN", "DC"))
+airbnb_states <- sapply(airbnb$city, function(x) {
+  temp$state[which(temp$city == x)]
+})
+airbnb <- airbnb %>%
+  mutate(state = airbnb_states)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r data-exploration, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+head(airbnb)
+summary(airbnb)
+length(airbnb$price)
+airbnb %>% summarize(num_properties = n_distinct(id), num_hosts = n_distinct(host_id))
+```
+
+
+### Data Analysis
+Fill
+```{r price-distribution-with-outliers, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+# Price Distribution
+airbnb %>%
+  ggplot(aes(price)) +
+  geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Price",trans = "log", breaks = c(1, 10, 100, 1000, 10000)) +
+  ylab("Count") +
+  ggtitle("Price Distribution")
+```
+
+```{r price-distribution, echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE}
+# Get rid of extreme outliers. 
+# Price Distribution
+airbnb <- airbnb %>%
+  filter(price > 10 & price < 1000)
+airbnb %>%
+  ggplot(aes(price)) +
+  geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Price",trans = "log", breaks = c(15, 100, 1000)) +
+  ylab("Count") +
+  ggtitle("Price Distribution")  
+```
+
+
+

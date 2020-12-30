@@ -23,6 +23,7 @@ if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.u
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
 if(!require(wordcloud)) install.packages("wordcloud", repos = "http://cran.us.r-project.org")
+if(!require(forcats)) install.packages("forcats", repos = "http://cran.us.r-project.org")
 
 # Loading the dataset
 airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
@@ -30,21 +31,17 @@ airbnb <- read_csv("Data/AB_US_2020.csv", col_types = cols(
   neighbourhood_group = col_character()
 ))
 
-# Removing locations with price set at 0 since those are probably typos.
-indices <- which(airbnb$price == 0)
-airbnb <- airbnb[-indices,]
 # Changing NAs in neighbourhood_group column to "other".
-airbnb$neighbourhood_group[is.na(airbnb$neighbourhood_group)] <- "other"
+airbnb$neighbourhood_group[is.na(airbnb$neighbourhood_group)] <- "Other neighborhoods"
+airbnb$neighbourhood_group[airbnb$neighbourhood_group == "Other Cities"] <- "Other neighborhoods"
 # Changing NAs in reviews_per_month column to 0.
 airbnb$reviews_per_month[is.na(airbnb$reviews_per_month)] <- 0
-
 # Converting last_review column to numeric
 airbnb <- airbnb %>%
   mutate(last_review = as.numeric(as.Date(airbnb$last_review, "%d/%m/%y")))
 airbnb$last_review[is.na(airbnb$last_review)] <- 0
 airbnb <- airbnb %>%
   filter(minimum_nights < 365)
-
 # Removing all NAs
 airbnb <- na.omit(airbnb)
 
@@ -77,64 +74,8 @@ airbnb %>%
   ylab("Count") +
   ggtitle("Price Distribution")  
 
-# Number of Review Distribution
-airbnb %>%
-  ggplot(aes(number_of_reviews)) +
-  geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Number of Reviews",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 1000)) +
-  ylab("Count") +
-  ggtitle("Number of Reviews Distribution") 
-
-# Reviews Per Month Distribution
-airbnb %>%
-  ggplot(aes(reviews_per_month)) +
-  geom_histogram(binwidth = 0.1, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Reviews Per Month",trans = pseudo_log_trans(base = 10), breaks = c(1, 10)) +
-  ylab("Count") +
-  ggtitle("Reviews Per Month Distribution") 
-
-# Last Review Distribution
-airbnb %>%
-  ggplot(aes(last_review)) +
-  geom_histogram(bins = 25, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Days") +
-  ylab("Count") +
-  ggtitle("Last Review Distribution") 
-
-# Last Review Distribution - without 0's.
-airbnb %>%
-  filter(last_review > 0) %>%
-  ggplot(aes(last_review)) +
-  geom_histogram(bins = 20, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Day") +
-  ylab("Count") +
-  ggtitle("Last Review Distribution") 
-
-# Age Distribution
-airbnb %>%
-  ggplot(aes(age)) +
-  geom_histogram(bins = 15, color = "black", fill = "#2e4057", na.rm= TRUE) +
-  xlab("Age") +
-  ylab("Count") +
-  ggtitle("Listing Age Distribution") 
-
-# Calculated Host Listings Count Distribution
-airbnb %>%
-  ggplot(aes(calculated_host_listings_count)) +
-  geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Calculated Host Listings Count",trans = "log10", breaks = c(1, 10, 100, 1000)) +
-  ylab("Count") +
-  ggtitle("Calculated Host Listings Count Distribution") 
-
-# Availability 365 Distribution
-airbnb %>%
-  ggplot(aes(availability_365)) +
-  geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Availability 365",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 365)) +
-  ylab("Count") +
-  ggtitle("Availability 365 Distribution") 
-
 # Room Type Distribution
+airbnb$room_type <- fct_infreq(airbnb$room_type)
 airbnb %>%
   ggplot(aes(room_type, label = percent(prop.table(stat(count))))) +
   geom_bar(color = "black", fill = "#2e4057") +
@@ -154,89 +95,54 @@ airbnb %>%
   scale_y_continuous(name = "Count", labels = comma) +
   ggtitle("Average Price by Room Type")
 
-# Average Number of Reviews by Room Type
+# Number of Review Distribution
 airbnb %>%
-  group_by(room_type) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Room Type") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by Room Type")
+  ggplot(aes(number_of_reviews)) +
+  geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Number of Reviews",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 1000)) +
+  ylab("Count") +
+  ggtitle("Number of Reviews Distribution") 
 
-# Average Reviews per Month by Room Type
+# Minimum Nights Distribution
 airbnb %>%
-  group_by(room_type) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Room Type") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by Room Type")
+  ggplot(aes(minimum_nights)) +
+  geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Minimum Nights",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100)) +
+  ylab("Count") +
+  ggtitle("Minimum Nights Distribution")
 
-# Average Listing Availability by Room Type
+# Availability 365 Distribution
 airbnb %>%
-  group_by(room_type) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Room Type") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by Room Type")
+  ggplot(aes(availability_365)) +
+  geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Availability 365",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 365)) +
+  ylab("Count") +
+  ggtitle("Availability 365 Distribution") 
 
-# Average Price by Top 10 Neighborhoods
+# Calculated Host Listings Count Distribution
 airbnb %>%
-  group_by(neighbourhood) %>%
-  summarize(mean = mean(price), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood, mean), mean, label = dollar(round(mean, digits = 2)))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighborhood") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Price by Neighborhood") +
-  coord_flip()
+  ggplot(aes(calculated_host_listings_count)) +
+  geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
+  scale_x_continuous(name = "Calculated Host Listings Count",trans = "log10", breaks = c(1, 10, 100, 1000)) +
+  ylab("Count") +
+  ggtitle("Calculated Host Listings Count Distribution") 
 
-# Average Number of Reviews by Top 10 Neighborhoods
+# Listings' earth coordinates
 airbnb %>%
-  group_by(neighbourhood) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by Neighbourhood") +
-  coord_flip()
+  ggplot(aes(x = longitude, y = latitude)) +
+  geom_point(color = "black", fill = "#2e4057") +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  ggtitle("Listing Coordinates")
 
-# Average Reviews per Month by Top 10 Neighborhoods
+# Neighbourhood_group distribution
+airbnb$neighbourhood_group <- fct_rev(fct_infreq(airbnb$neighbourhood_group))
 airbnb %>%
-  group_by(neighbourhood) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by Neighbourhood") +
-  coord_flip()
-
-# Average Listing Availability by Top 10 Neighborhoods
-airbnb %>%
-  group_by(neighbourhood) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by Neighbourhood") +
+  ggplot(aes(neighbourhood_group, label = percent(prop.table(stat(count))))) +
+  geom_bar(color = "black", fill = "#2e4057") +
+  geom_text(stat = "count", position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+  xlab("Neighbourhood Group") +
+  ggtitle("Neighbourhood Group Distribution") +
   coord_flip()
 
 # Average Price by Top 10 Neighborhood Group
@@ -250,45 +156,6 @@ airbnb %>%
   xlab("Neighborhood Group") +
   scale_y_continuous(name = "Count", labels = comma) +
   ggtitle("Average Price by Neighborhood Group") +
-  coord_flip()
-
-# Average Number of Reviews by Top 10 Neighborhood Group
-airbnb %>%
-  group_by(neighbourhood_group) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood Group") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by Neighbourhood Group") +
-  coord_flip()
-
-# Average Reviews per Month by Top 10 Neighborhood Group
-airbnb %>%
-  group_by(neighbourhood_group) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood Group") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by Neighbourhood Group") +
-  coord_flip()
-
-# Average Listing Availability by Top 10 Neighborhood Group
-airbnb %>%
-  group_by(neighbourhood_group) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  slice_max(mean, n = 10) %>%
-  ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("Neighbourhood Group") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by Neighbourhood Group") +
   coord_flip()
 
 # Cities Distribution
@@ -313,42 +180,6 @@ airbnb %>%
   xlab("City") +
   scale_y_continuous(name = "Count", labels = comma) +
   ggtitle("Average Price by City") +
-  coord_flip()
-
-# Average Number of Reviews by City
-airbnb %>%
-  group_by(city) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("City") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by City") +
-  coord_flip()
-
-# Average Reviews per Month by City
-airbnb %>%
-  group_by(city) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("City") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by City") +
-  coord_flip()
-
-# Average Listing Availability by City
-airbnb %>%
-  group_by(city) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("City") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by City") +
   coord_flip()
 
 # Adding the State column
@@ -388,128 +219,6 @@ airbnb %>%
   ggtitle("Average Price by State") +
   coord_flip()
 
-# Average Number of Reviews by State
-airbnb %>%
-  group_by(state) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("State") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by State") +
-  coord_flip()
-
-# Average Reviews per Month by State
-airbnb %>%
-  group_by(state) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("State") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by State") +
-  coord_flip()
-
-# Average Listing Availability by State
-airbnb %>%
-  group_by(state) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
-  xlab("State") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by State") +
-  coord_flip()
-
-# Adding the Region column
-temp <- tibble(state = c("NC", "TX", "MA", "FL", "IL", "NV", "OH", "CO", "HI",
-                         "NJ", "CA", "TN", "LA", "NY","OR", "RI","WA", "MN", "DC"),
-               region = c("Southeast", "Southwest", "Northeast", "Southeast",
-                          "Midwest", "West", "Midwest", "West", "West", "Northeast",
-                          "West","Southeast", "Southeast", "Northeast", "West",
-                          "Northeast", "West", "Midwest", "Southeast"))
-airbnb_regions <- sapply(airbnb$state, function(x) {
-  temp$region[which(temp$state == x)]
-})
-airbnb <- airbnb %>%
-  mutate(region = airbnb_regions)
-
-# Region Distribution
-airbnb %>%
-  group_by(region) %>%
-  mutate(count = n()) %>%
-  ggplot(aes(x = reorder(region, count), label = percent(prop.table(stat(count))))) +
-  geom_bar(color = "black", fill = "#2e4057") +
-  geom_text(stat = "count", position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Region") +
-  scale_y_continuous(name = "Count", labels = comma, breaks = c(10000, 25000, 50000,75000, 100000)) +
-  ggtitle("Region Distribution")
-
-# Average Price by Region
-airbnb %>%
-  group_by(region) %>%
-  summarize(mean = mean(price), .groups = "drop") %>%
-  ggplot(aes(x = reorder(region, mean), mean, label = dollar(round(mean, digits = 2)))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Region") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Price by Region")
-
-# Average Number of Reviews by Region
-airbnb %>%
-  group_by(region) %>%
-  summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
-  ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Region") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Number of Reviews by Region")
-
-# Average Reviews per Month by Region
-airbnb %>%
-  group_by(region) %>%
-  summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
-  ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Region") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Reviews per Month by Region")
-
-# Average Listing Availability by Region
-airbnb %>%
-  group_by(region) %>%
-  summarize(mean = mean(availability_365), .groups = "drop") %>%
-  ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
-  geom_col(color = "black", fill = "#2e4057") +
-  geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
-  xlab("Region") +
-  scale_y_continuous(name = "Count", labels = comma) +
-  ggtitle("Average Listing Availability by Region")
-
-# The relation between id and age
-airbnb %>%
-  ggplot(aes(id, age)) +
-  geom_point(na.rm = TRUE) +
-  geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
-
-# The relation between host_id and age
-airbnb %>%
-  ggplot(aes(host_id, age)) +
-  geom_point(na.rm = TRUE) +
-  geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
-
-# The relation between host_id and calculated_host_listings_count
-airbnb %>%
-  ggplot(aes(host_id, calculated_host_listings_count)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm')
-
 # Text analysis
 words <- airbnb %>%
   unnest_tokens(word, name, drop = FALSE) %>%
@@ -525,82 +234,6 @@ wordcloud <- words %>%
   summarize(count = n(), .groups = "drop") %>%
   slice_max(count, n = 150)
 wordcloud(wordcloud$word, wordcloud$count)
-
-# Top 10 Words by Room Type
-for(i in na.omit(unique(words$room_type))) {
-  print(i)
-  words %>%
-    filter(room_type == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
-
-# Top 10 Words by Region
-for(i in na.omit(unique(words$region))) {
-  print(i)
-  words %>%
-    filter(region == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
-
-# Top 10 Words by Number of Reviews
-words <- words %>%
-  mutate(categorized_num_reviews = cut(number_of_reviews, breaks=c(-Inf, quantile(number_of_reviews, 0.33), quantile(number_of_reviews, 0.67), Inf),
-                                       labels=c("Weak","Medium","Strong")))
-for(i in levels(words$categorized_num_reviews)) {
-  print(i)
-  words %>%
-    filter(categorized_num_reviews == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
-
-# Top 10 Words by Price
-words <- words %>%
-  mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33, na.rm =), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
-for(i in levels(words$categorized_price)) {
-  print(i)
-  words %>%
-    filter(categorized_price == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
-
-# Top 10 Words by Age
-words <- words %>%
-  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
-for(i in levels(words$categorized_age)) {
-  print(i)
-  words %>%
-    filter(categorized_age == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
-
-# Top 10 Words by Last Review
-words <- words %>%
-  mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf),
-                                labels=c("No reviews", "Recently","Medium","Long Ago")))
-for(i in levels(words$categorized_days)) {
-  print(i)
-  words %>%
-    filter(categorized_days == i) %>%
-    group_by(word) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-}
 
 # Sentiment Analysis
 afinn <- get_sentiments("afinn")
@@ -620,115 +253,15 @@ words_sentiment %>%
   summarize(count = n(), .groups = "drop") %>%
   slice_min(count, n = 10)
 
-# Top 10 Sentiment Words by Room Type
-for(i in na.omit(unique(words_sentiment$room_type))) {
-  print(i)
-  words_sentiment %>%
-    filter(room_type == i) %>%
-    group_by(word, sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(room_type == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
-# Top 10 Sentiment Words by Region
-for(i in na.omit(unique(words_sentiment$region))) {
-  print(i)
-  words_sentiment %>%
-    filter(region == i) %>%
-    group_by(word, sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(region == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
-# Top 10 Sentiment Words by Number of Reviews
-words_sentiment <- words_sentiment %>%
-  mutate(categorized_num_reviews = cut(number_of_reviews, breaks=c(-Inf, quantile(number_of_reviews, 0.33), quantile(number_of_reviews, 0.67), Inf),
-                                       labels=c("Weak","Medium","Strong")))
-for(i in levels(words_sentiment$categorized_num_reviews)) {
-  print(i)
-  words_sentiment %>%
-    filter(categorized_num_reviews == i) %>%
-    group_by(word,sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(categorized_num_reviews == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
-# Top 10 Sentiment Words by Price
-words_sentiment <- words_sentiment %>%
-  mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
-for(i in levels(words_sentiment$categorized_price)) {
-  print(i)
-  words_sentiment %>%
-    filter(categorized_price == i) %>%
-    group_by(word, sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(categorized_price == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
-# Top 10 Sentiment Words by Age
-words_sentiment <- words_sentiment %>%
-  mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
-for(i in levels(words_sentiment$categorized_age)) {
-  print(i)
-  words_sentiment %>%
-    filter(categorized_age == i) %>%
-    group_by(word, sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(categorized_age == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
-# Top 10 Sentiment Words by Last Review
-words_sentiment <- words_sentiment %>%
-  mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf), 
-                                labels=c("No reviews", "Recently","Medium","Long Ago")))
-for(i in levels(words_sentiment$categorized_days)) {
-  print(i)
-  words_sentiment %>%
-    filter(categorized_days == i) %>%
-    group_by(word, sentiment) %>%
-    summarize(count = n(), .groups = "drop") %>%
-    slice_max(count, n = 10) %>%
-    print
-  words_sentiment %>% 
-    filter(categorized_days == i) %>%
-    summarize(mean = mean(sentiment)) %>%
-    print
-}
-
+# Creating a new column for each word in the top 10
 top_words <- words %>%
   group_by(word) %>%
   summarize(count = n(), .groups = "drop") %>%
-  slice_max(count, n = 40) %>%
+  slice_max(count, n = 10) %>%
   pull(word)
 
 words_cp <- words
 words_cp$word[-which(words_cp$word %in% top_words)] <- 0
-
 
 airbnb <- airbnb %>% mutate(name = tolower(name))
 
@@ -736,7 +269,7 @@ airbnb <- airbnb %>% mutate(name = tolower(name))
 for (word in top_words){
   regex_word <- word
   col_name <- paste("word", word, sep="_")
-  airbnb <- airbnb %>% mutate(!!col_name := ifelse(grepl(regex_word, name, fixed=TRUE), 1, 0))
+  airbnb <- airbnb %>% mutate(!!col_name := ifelse(grepl(regex_word, name, fixed = TRUE), 1, 0))
 }
 
 words <- words %>% 
@@ -761,7 +294,7 @@ airbnb <- BBmisc::normalize(airbnb, method = "range", range = c(0, 1))
 # Turn character columns to factor columns
 airbnb <- airbnb %>% mutate_if(is.character, as.factor)
 
-# Removing column with near zero variance since they are not useful.
+# Removing column with near zero variance since they are not very useful for prediction and can prolong running time.
 nzv <- nearZeroVar(airbnb, )
 if (length(nzv) > 0) {
   airbnb <- airbnb[, -nzv]
@@ -778,7 +311,7 @@ train %>%
   cor %>%
   corrplot(type = "upper", order = "hclust", tl.col = "black", tl.cex = 0.6)
 
-rm(words_cp, afinn, temp, col_name, regex_word, word, id_sentiment, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, indices, nzv, top_words)
+rm(words_cp, afinn, temp, col_name, regex_word, word, id_sentiment, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, nzv, top_words)
 
 ### Modeling Approach ###
 ## Base Model - Mean only ##
@@ -900,29 +433,6 @@ rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble", RMSE = ensemble_rmse)
 rmse_results %>% knitr::kable()
 
-# # Weighted Average Ensemble
-# train_ensemble <- tibble(linear_regression = predict(fit_lm, train), knn = predict(fit_knn, train), regression_tree = predict(fit_rt, train),
-#                     random_forest = predict(fit_rf, train), price = train$price)
-# test_ensemble <- tibble(linear_regression = predictions_lm, knn = predictions_knn, regression_tree = predictions_rt, random_forest = predictions_rf, price = test$price)
-# 
-# fit_weighted_ensemble <- train(price ~ ., method = "lm", data = train_ensemble, trControl = control)
-# predictions_weighted_ensemble <- predict(fit_weighted_ensemble, test_ensemble)
-# weighted_ensemble_rmse <- RMSE(test_ensemble$price, predictions_weighted_ensemble)
-# 
-# actual_vs_pred <- data.frame(x = test$price, y = predictions_lm)
-# ggplot(actual_vs_pred ,aes(x, y)) +
-#   geom_point() +
-#   geom_smooth(formula = "y ~ x", method='lm') +
-#   geom_abline(slope = 1, intercept = 0, color = "red") +
-#   ggtitle("Weighted Average Ensemble") +
-#   xlab("Actual Prices") +
-#   ylab("Predicted Prices")
-# 
-# rmse_results <- rmse_results %>%
-#   add_row(method = "Weighted Average Ensemble", RMSE = weighted_ensemble_rmse)
-# rmse_results %>% knitr::kable()
-
-
 # A look at the models' predictions using rows with price less than $350.
 low_prices_test <- test %>%
   filter(price < 0.35)
@@ -1012,6 +522,519 @@ ggplot(actual_vs_pred ,aes(x, y)) +
 rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble, low prices", RMSE = ensemble_rmse_low_prices)
 rmse_results %>% knitr::kable()
+
+# # Reviews Per Month Distribution
+# airbnb %>%
+#   ggplot(aes(reviews_per_month)) +
+#   geom_histogram(binwidth = 0.1, color = "black", fill = "#2e4057") +
+#   scale_x_continuous(name = "Reviews Per Month",trans = pseudo_log_trans(base = 10), breaks = c(1, 10)) +
+#   ylab("Count") +
+#   ggtitle("Reviews Per Month Distribution") 
+
+# # Last Review Distribution
+# airbnb %>%
+#   ggplot(aes(last_review)) +
+#   geom_histogram(bins = 25, color = "black", fill = "#2e4057") +
+#   scale_x_continuous(name = "Days") +
+#   ylab("Count") +
+#   ggtitle("Last Review Distribution") 
+
+# # Last Review Distribution - without 0's.
+# airbnb %>%
+#   filter(last_review > 0) %>%
+#   ggplot(aes(last_review)) +
+#   geom_histogram(bins = 20, color = "black", fill = "#2e4057") +
+#   scale_x_continuous(name = "Day") +
+#   ylab("Count") +
+#   ggtitle("Last Review Distribution") 
+
+# # Age Distribution
+# airbnb %>%
+#   ggplot(aes(age)) +
+#   geom_histogram(bins = 15, color = "black", fill = "#2e4057", na.rm= TRUE) +
+#   xlab("Age") +
+#   ylab("Count") +
+#   ggtitle("Listing Age Distribution") 
+
+# # Average Number of Reviews by Room Type
+# airbnb %>%
+#   group_by(room_type) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Room Type") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by Room Type")
+# 
+# # Average Reviews per Month by Room Type
+# airbnb %>%
+#   group_by(room_type) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Room Type") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by Room Type")
+# 
+# # Average Listing Availability by Room Type
+# airbnb %>%
+#   group_by(room_type) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(room_type, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Room Type") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by Room Type")
+
+# # Average Price by Top 10 Neighborhoods
+# airbnb %>%
+#   group_by(neighbourhood) %>%
+#   summarize(mean = mean(price), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood, mean), mean, label = dollar(round(mean, digits = 2)))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighborhood") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Price by Neighborhood") +
+#   coord_flip()
+
+# # Average Number of Reviews by Top 10 Neighborhoods
+# airbnb %>%
+#   group_by(neighbourhood) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by Neighbourhood") +
+#   coord_flip()
+
+# # Average Reviews per Month by Top 10 Neighborhoods
+# airbnb %>%
+#   group_by(neighbourhood) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by Neighbourhood") +
+#   coord_flip()
+
+# # Average Listing Availability by Top 10 Neighborhoods
+# airbnb %>%
+#   group_by(neighbourhood) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by Neighbourhood") +
+#   coord_flip()
+
+# # Average Number of Reviews by Top 10 Neighborhood Group
+# airbnb %>%
+#   group_by(neighbourhood_group) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood Group") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by Neighbourhood Group") +
+#   coord_flip()
+# 
+# # Average Reviews per Month by Top 10 Neighborhood Group
+# airbnb %>%
+#   group_by(neighbourhood_group) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood Group") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by Neighbourhood Group") +
+#   coord_flip()
+# 
+# # Average Listing Availability by Top 10 Neighborhood Group
+# airbnb %>%
+#   group_by(neighbourhood_group) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   slice_max(mean, n = 10) %>%
+#   ggplot(aes(x = reorder(neighbourhood_group, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("Neighbourhood Group") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by Neighbourhood Group") +
+#   coord_flip()
+
+# # Average Number of Reviews by City
+# airbnb %>%
+#   group_by(city) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("City") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by City") +
+#   coord_flip()
+# 
+# # Average Reviews per Month by City
+# airbnb %>%
+#   group_by(city) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("City") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by City") +
+#   coord_flip()
+# 
+# # Average Listing Availability by City
+# airbnb %>%
+#   group_by(city) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(city, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("City") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by City") +
+#   coord_flip()
+# 
+# # Average Number of Reviews by State
+# airbnb %>%
+#   group_by(state) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("State") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by State") +
+#   coord_flip()
+# 
+# # Average Reviews per Month by State
+# airbnb %>%
+#   group_by(state) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("State") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by State") +
+#   coord_flip()
+# 
+# # Average Listing Availability by State
+# airbnb %>%
+#   group_by(state) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+#   xlab("State") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by State") +
+#   coord_flip()
+
+# # Adding the Region column
+# temp <- tibble(state = c("NC", "TX", "MA", "FL", "IL", "NV", "OH", "CO", "HI",
+#                          "NJ", "CA", "TN", "LA", "NY","OR", "RI","WA", "MN", "DC"),
+#                region = c("Southeast", "Southwest", "Northeast", "Southeast",
+#                           "Midwest", "West", "Midwest", "West", "West", "Northeast",
+#                           "West","Southeast", "Southeast", "Northeast", "West",
+#                           "Northeast", "West", "Midwest", "Southeast"))
+# airbnb_regions <- sapply(airbnb$state, function(x) {
+#   temp$region[which(temp$state == x)]
+# })
+# airbnb <- airbnb %>%
+#   mutate(region = airbnb_regions)
+
+# # Region Distribution
+# airbnb %>%
+#   group_by(region) %>%
+#   mutate(count = n()) %>%
+#   ggplot(aes(x = reorder(region, count), label = percent(prop.table(stat(count))))) +
+#   geom_bar(color = "black", fill = "#2e4057") +
+#   geom_text(stat = "count", position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Region") +
+#   scale_y_continuous(name = "Count", labels = comma, breaks = c(10000, 25000, 50000,75000, 100000)) +
+#   ggtitle("Region Distribution")
+
+# # Average Price by Region
+# airbnb %>%
+#   group_by(region) %>%
+#   summarize(mean = mean(price), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(region, mean), mean, label = dollar(round(mean, digits = 2)))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Region") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Price by Region")
+
+# # Average Number of Reviews by Region
+# airbnb %>%
+#   group_by(region) %>%
+#   summarize(mean = mean(number_of_reviews), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Region") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Number of Reviews by Region")
+
+# # Average Reviews per Month by Region
+# airbnb %>%
+#   group_by(region) %>%
+#   summarize(mean = mean(reviews_per_month), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Region") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Reviews per Month by Region")
+
+# # Average Listing Availability by Region
+# airbnb %>%
+#   group_by(region) %>%
+#   summarize(mean = mean(availability_365), .groups = "drop") %>%
+#   ggplot(aes(x = reorder(region, mean), mean, label = round(mean, digits = 2))) +
+#   geom_col(color = "black", fill = "#2e4057") +
+#   geom_text(position = position_dodge(width = .9), vjust = -0.5, size = 3) +
+#   xlab("Region") +
+#   scale_y_continuous(name = "Count", labels = comma) +
+#   ggtitle("Average Listing Availability by Region")
+
+# # The relation between id and age
+# airbnb %>%
+#   ggplot(aes(id, age)) +
+#   geom_point(na.rm = TRUE) +
+#   geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
+
+# # The relation between host_id and age
+# airbnb %>%
+#   ggplot(aes(host_id, age)) +
+#   geom_point(na.rm = TRUE) +
+#   geom_smooth(formula = "y ~ x", method='glm', na.rm = TRUE)
+
+# # The relation between host_id and calculated_host_listings_count
+# airbnb %>%
+#   ggplot(aes(host_id, calculated_host_listings_count)) +
+#   geom_point() +
+#   geom_smooth(formula = "y ~ x", method='glm')
+
+# # Top 10 Words by Room Type
+# for(i in na.omit(unique(words$room_type))) {
+#   print(i)
+#   words %>%
+#     filter(room_type == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Words by Region
+# for(i in na.omit(unique(words$region))) {
+#   print(i)
+#   words %>%
+#     filter(region == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Words by Number of Reviews
+# words <- words %>%
+#   mutate(categorized_num_reviews = cut(number_of_reviews, breaks=c(-Inf, quantile(number_of_reviews, 0.33), quantile(number_of_reviews, 0.67), Inf),
+#                                        labels=c("Weak","Medium","Strong")))
+# for(i in levels(words$categorized_num_reviews)) {
+#   print(i)
+#   words %>%
+#     filter(categorized_num_reviews == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Words by Price
+# words <- words %>%
+#   mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33, na.rm =), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
+# for(i in levels(words$categorized_price)) {
+#   print(i)
+#   words %>%
+#     filter(categorized_price == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Words by Age
+# words <- words %>%
+#   mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
+# for(i in levels(words$categorized_age)) {
+#   print(i)
+#   words %>%
+#     filter(categorized_age == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Words by Last Review
+# words <- words %>%
+#   mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf),
+#                                 labels=c("No reviews", "Recently","Medium","Long Ago")))
+# for(i in levels(words$categorized_days)) {
+#   print(i)
+#   words %>%
+#     filter(categorized_days == i) %>%
+#     group_by(word) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Room Type
+# for(i in na.omit(unique(words_sentiment$room_type))) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(room_type == i) %>%
+#     group_by(word, sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(room_type == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Region
+# for(i in na.omit(unique(words_sentiment$region))) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(region == i) %>%
+#     group_by(word, sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(region == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Number of Reviews
+# words_sentiment <- words_sentiment %>%
+#   mutate(categorized_num_reviews = cut(number_of_reviews, breaks=c(-Inf, quantile(number_of_reviews, 0.33), quantile(number_of_reviews, 0.67), Inf),
+#                                        labels=c("Weak","Medium","Strong")))
+# for(i in levels(words_sentiment$categorized_num_reviews)) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(categorized_num_reviews == i) %>%
+#     group_by(word,sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(categorized_num_reviews == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Price
+# words_sentiment <- words_sentiment %>%
+#   mutate(categorized_price = cut(price, breaks=c(-Inf, quantile(price, 0.33), quantile(price, 0.67), Inf), labels=c("Low","Medium","High")))
+# for(i in levels(words_sentiment$categorized_price)) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(categorized_price == i) %>%
+#     group_by(word, sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(categorized_price == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Age
+# words_sentiment <- words_sentiment %>%
+#   mutate(categorized_age = cut(age, breaks=c(-Inf, quantile(age, 0.33, na.rm = TRUE), quantile(age, 0.67, na.rm = TRUE), Inf), labels=c("Young","Medium","Old")))
+# for(i in levels(words_sentiment$categorized_age)) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(categorized_age == i) %>%
+#     group_by(word, sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(categorized_age == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Top 10 Sentiment Words by Last Review
+# words_sentiment <- words_sentiment %>%
+#   mutate(categorized_days = cut(last_review, breaks=c(-Inf, 1, quantile(last_review, 0.33), quantile(last_review, 0.67), Inf), 
+#                                 labels=c("No reviews", "Recently","Medium","Long Ago")))
+# for(i in levels(words_sentiment$categorized_days)) {
+#   print(i)
+#   words_sentiment %>%
+#     filter(categorized_days == i) %>%
+#     group_by(word, sentiment) %>%
+#     summarize(count = n(), .groups = "drop") %>%
+#     slice_max(count, n = 10) %>%
+#     print
+#   words_sentiment %>% 
+#     filter(categorized_days == i) %>%
+#     summarize(mean = mean(sentiment)) %>%
+#     print
+# }
+
+# # Weighted Average Ensemble
+# train_ensemble <- tibble(linear_regression = predict(fit_lm, train), knn = predict(fit_knn, train), regression_tree = predict(fit_rt, train),
+#                     random_forest = predict(fit_rf, train), price = train$price)
+# test_ensemble <- tibble(linear_regression = predictions_lm, knn = predictions_knn, regression_tree = predictions_rt, random_forest = predictions_rf, price = test$price)
+# 
+# fit_weighted_ensemble <- train(price ~ ., method = "lm", data = train_ensemble, trControl = control)
+# predictions_weighted_ensemble <- predict(fit_weighted_ensemble, test_ensemble)
+# weighted_ensemble_rmse <- RMSE(test_ensemble$price, predictions_weighted_ensemble)
+# 
+# actual_vs_pred <- data.frame(x = test$price, y = predictions_lm)
+# ggplot(actual_vs_pred ,aes(x, y)) +
+#   geom_point() +
+#   geom_smooth(formula = "y ~ x", method='lm') +
+#   geom_abline(slope = 1, intercept = 0, color = "red") +
+#   ggtitle("Weighted Average Ensemble") +
+#   xlab("Actual Prices") +
+#   ylab("Predicted Prices")
+# 
+# rmse_results <- rmse_results %>%
+#   add_row(method = "Weighted Average Ensemble", RMSE = weighted_ensemble_rmse)
+# rmse_results %>% knitr::kable()
 
 # # Weighted Average Ensemble
 # low_prices_test_ensemble <- test_ensemble %>% filter(price < 0.35)
