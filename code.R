@@ -40,14 +40,11 @@ airbnb$reviews_per_month[is.na(airbnb$reviews_per_month)] <- 0
 airbnb <- airbnb %>%
   mutate(last_review = as.numeric(as.Date(airbnb$last_review, "%d/%m/%y")))
 airbnb$last_review[is.na(airbnb$last_review)] <- 0
+# Filtering listings with more than a year stay minimum.
 airbnb <- airbnb %>%
   filter(minimum_nights < 365)
 # Removing all NAs
 airbnb <- na.omit(airbnb)
-
-# Adding the age column
-airbnb <- airbnb %>%
-  mutate(age = ifelse(number_of_reviews > 0, round(number_of_reviews / reviews_per_month / 12, digits = 2), NA))
 
 ### Data Exploration ###
 head(airbnb)
@@ -70,7 +67,7 @@ airbnb <- airbnb %>%
 airbnb %>%
   ggplot(aes(price)) +
   geom_histogram(binwidth = 0.25, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Price",trans = "log", breaks = c(15, 100, 1000)) +
+  scale_x_continuous(name = "Price",trans = "log", breaks = c(10, 100, 1000)) +
   ylab("Count") +
   ggtitle("Price Distribution")  
 
@@ -97,11 +94,36 @@ airbnb %>%
 
 # Number of Review Distribution
 airbnb %>%
-  ggplot(aes(number_of_reviews)) +
+ ggplot(aes(number_of_reviews)) +
+ geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
+ scale_x_continuous(name = "Number of Reviews",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 1000)) +
+ ylab("Count") +
+ ggtitle("Number of Reviews Distribution") 
+
+# Reviews Per Month Distribution
+airbnb %>%
+  ggplot(aes(reviews_per_month)) +
   geom_histogram(binwidth = 0.2, color = "black", fill = "#2e4057") +
-  scale_x_continuous(name = "Number of Reviews",trans = pseudo_log_trans(base = 10), breaks = c(1, 10, 100, 1000)) +
+  scale_x_continuous(name = "Reviews Per Month",trans = pseudo_log_trans(base = 10), breaks = c(1, 10)) +
   ylab("Count") +
-  ggtitle("Number of Reviews Distribution") 
+  ggtitle("Reviews Per Month Distribution")
+
+# Last Review Distribution
+airbnb %>%
+  ggplot(aes(last_review)) +
+  geom_bar(stat = "count", width = 0.9, color = "black", fill = "#2e4057") +
+  xlab("Days") +
+  ylab("Count") +
+  ggtitle("Last Review Distribution")
+
+# Last Review Distribution - without 0's.
+airbnb %>%
+  filter(last_review > 0) %>%
+  ggplot(aes(last_review)) +
+  geom_bar(stat = "count", width = 0.9, color = "black", fill = "#2e4057") +
+  xlab("Day") +
+  ylab("Count") +
+  ggtitle("Last Review Distribution")
 
 # Minimum Nights Distribution
 airbnb %>%
@@ -219,6 +241,18 @@ airbnb %>%
   ggtitle("Average Price by State") +
   coord_flip()
 
+# Average Listing Availability by State
+airbnb %>%
+  group_by(state) %>%
+  summarize(mean = mean(availability_365), .groups = "drop") %>%
+  ggplot(aes(x = reorder(state, mean), mean, label = round(mean, digits = 2))) +
+  geom_col(color = "black", fill = "#2e4057") +
+  geom_text(position = position_dodge(width = .9), hjust = -0.05, size = 3) +
+  xlab("State") +
+  scale_y_continuous(name = "Count", labels = comma) +
+  ggtitle("Average Listing Availability by State") +
+  coord_flip()
+
 # Text analysis
 words <- airbnb %>%
   unnest_tokens(word, name, drop = FALSE) %>%
@@ -235,6 +269,21 @@ wordcloud <- words %>%
   slice_max(count, n = 150)
 wordcloud(wordcloud$word, wordcloud$count)
 
+# Creating a new column for each word in the top 10
+top_words <- words %>%
+  group_by(word) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  slice_max(count, n = 10) %>%
+  pull(word)
+
+airbnb <- airbnb %>% mutate(name = tolower(name))
+
+for (word in top_words){
+  regex_word <- word
+  col_name <- paste("word", word, sep="_")
+  airbnb <- airbnb %>% mutate(!!col_name := ifelse(grepl(regex_word, name, fixed = TRUE), 1, 0))
+}
+
 # Sentiment Analysis
 afinn <- get_sentiments("afinn")
 words_sentiment <- words %>% 
@@ -247,31 +296,7 @@ words_sentiment %>%
   summarize(count = n(), .groups = "drop") %>%
   slice_max(count, n = 10)
 
-# Bottom 10 Words
-words_sentiment %>%
-  group_by(word, sentiment) %>%
-  summarize(count = n(), .groups = "drop") %>%
-  slice_min(count, n = 10)
-
-# Creating a new column for each word in the top 10
-top_words <- words %>%
-  group_by(word) %>%
-  summarize(count = n(), .groups = "drop") %>%
-  slice_max(count, n = 10) %>%
-  pull(word)
-
-words_cp <- words
-words_cp$word[-which(words_cp$word %in% top_words)] <- 0
-
-airbnb <- airbnb %>% mutate(name = tolower(name))
-
-# Create a new column for each of the most common words
-for (word in top_words){
-  regex_word <- word
-  col_name <- paste("word", word, sep="_")
-  airbnb <- airbnb %>% mutate(!!col_name := ifelse(grepl(regex_word, name, fixed = TRUE), 1, 0))
-}
-
+# Creating the sentiment column
 words <- words %>% 
   left_join(afinn, by = "word") %>%
   rename(sentiment = value)
@@ -282,17 +307,23 @@ id_sentiment <- words %>%
 
 airbnb <- airbnb %>%
   inner_join(id_sentiment, by = "id")
+
+# The correlation plot helps us find columns that explain each other.
+airbnb %>%
+  select_if(is.numeric) %>%
+  cor %>%
+  corrplot(type = "upper", order = "hclust", tl.col = "black", tl.cex = 0.6)
+
 airbnb <- dummy_cols(airbnb, select_columns = c("neighbourhood_group", "room_type", "state", "city"))
 airbnb <- airbnb %>%
-  select(!(any_of(c("id", "name", "host_id", "host_name", "neighbourhood", "neighbourhood_group", "room_type", "state", "region", "city",
-                    "age", "reviews_per_month", "last_review"))))
+  select(!(any_of(c("id", "name", "host_id", "host_name", "neighbourhood", "neighbourhood_group", "room_type", "state", "region", "city"))))
 names(airbnb) <- str_replace_all(names(airbnb), c(" " = "_", "/" = "_"))
-
-# Normalize
-airbnb <- BBmisc::normalize(airbnb, method = "range", range = c(0, 1))
 
 # Turn character columns to factor columns
 airbnb <- airbnb %>% mutate_if(is.character, as.factor)
+
+# Normalize
+airbnb <- BBmisc::normalize(airbnb, method = "range", range = c(0, 1))
 
 # Removing column with near zero variance since they are not very useful for prediction and can prolong running time.
 nzv <- nearZeroVar(airbnb, )
@@ -305,13 +336,9 @@ set.seed(1, sample.kind="Rounding")
 test_indices <- createDataPartition(y = airbnb$price, times = 1, p = 0.1, list = FALSE)
 train <- airbnb[-test_indices,]
 test <- airbnb[test_indices,]
+train_small_subset <- train %>% sample_n(10000)
 
-train %>%
-  select_if(is.numeric) %>%
-  cor %>%
-  corrplot(type = "upper", order = "hclust", tl.col = "black", tl.cex = 0.6)
-
-rm(words_cp, afinn, temp, col_name, regex_word, word, id_sentiment, test_indices, words, words_sentiment, airbnb_regions, airbnb_states, i, nzv, top_words)
+rm(afinn, temp, col_name, regex_word, word, id_sentiment, test_indices, words, words_sentiment, airbnb_states, nzv, top_words, wordcloud)
 
 ### Modeling Approach ###
 ## Base Model - Mean only ##
@@ -347,7 +374,6 @@ rmse_results %>% knitr::kable()
 
 ## KNN ##
 tune <- expand.grid(k = c(9, 15, 21, 29, 41, 55, 71))
-train_small_subset <- train %>% sample_n(10000)
 train_knn <- train(price ~ ., method = "knn", data = train_small_subset, trControl = control, tuneGrid = tune)
 ggplot(train_knn)
 train_knn$bestTune
@@ -376,7 +402,7 @@ ggplot(train_rt)
 fit_rt <- rpart(price ~ ., data = train, control = rpart.control(cp = train_rt$bestTune))
 predictions_rt <- predict(fit_rt, test)
 rt_rmse <- RMSE(test$price, predictions_rt)
-rpart.plot::prp(fit_rt, faclen = 0)
+# rpart.plot::prp(fit_rt, faclen = 0)
 
 actual_vs_pred <- data.frame(x = test$price, y = predictions_rt)
 ggplot(actual_vs_pred ,aes(x, y)) +
@@ -395,7 +421,6 @@ rmse_results %>% knitr::kable()
 # First tune the mtry parameter by training on a small subset using a few values.
 mtry <- round(ncol(train) / 3)
 tune <- expand.grid(mtry = seq(mtry - 3, mtry + 3, len = 7))
-train_small_subset <- train %>% sample_n(10000)
 train_rf <- train(price ~ ., method = "rf", data = train_small_subset, ntree = 100, trControl = control, tuneGrid = tune)
 ggplot(train_rf)
 train_rf$bestTune
@@ -441,15 +466,6 @@ low_prices_test <- test %>%
 predictions_lm_low_prices <- predict(fit_lm, low_prices_test)
 lm_rmse_low_prices <- RMSE(low_prices_test$price, predictions_lm_low_prices)
 
-actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_lm_low_prices)
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Linear Regression") +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
-
 rmse_results <- rmse_results %>%
   add_row(method = "Linear Regression, low prices", RMSE = lm_rmse_low_prices)
 rmse_results %>% knitr::kable()
@@ -457,15 +473,6 @@ rmse_results %>% knitr::kable()
 # KNN
 predictions_knn_low_prices <- predict(fit_knn, low_prices_test)
 knn_rmse_low_prices <- RMSE(low_prices_test$price, predictions_knn_low_prices)
-
-actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_knn_low_prices)
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Knn") +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Knn, low prices", RMSE = knn_rmse_low_prices)
@@ -475,15 +482,6 @@ rmse_results %>% knitr::kable()
 predictions_rt_low_prices <- predict(fit_rt, low_prices_test)
 rt_rmse_low_prices <- RMSE(low_prices_test$price, predictions_rt_low_prices)
 
-actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_rt_low_prices)
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Regression Tree") +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
-
 rmse_results <- rmse_results %>%
   add_row(method = "Regression Tree, low prices", RMSE = rt_rmse_low_prices)
 rmse_results %>% knitr::kable()
@@ -491,15 +489,6 @@ rmse_results %>% knitr::kable()
 # Random Forest
 predictions_rf_low_prices <- predict(fit_rf, low_prices_test)
 rf_rmse_low_prices <- RMSE(low_prices_test$price, predictions_rf_low_prices)
-
-actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_rf_low_prices)
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Random Forest") +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
 
 rmse_results <- rmse_results %>%
   add_row(method = "Random Forest, low prices", RMSE = rf_rmse_low_prices)
@@ -510,43 +499,13 @@ predictions_ensemble_low_prices <- (predictions_lm_low_prices + predictions_knn_
                                       predictions_rt_low_prices + predictions_rf_low_prices) / 4
 ensemble_rmse_low_prices <- RMSE(low_prices_test$price, predictions_ensemble_low_prices)
 
-actual_vs_pred <- data.frame(x = low_prices_test$price, y = predictions_ensemble_low_prices)
-ggplot(actual_vs_pred ,aes(x, y)) +
-  geom_point() +
-  geom_smooth(formula = "y ~ x", method='glm') +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  ggtitle("Average Ensemble") +
-  xlab("Actual Prices") +
-  ylab("Predicted Prices")
-
 rmse_results <- rmse_results %>%
   add_row(method = "Average Ensemble, low prices", RMSE = ensemble_rmse_low_prices)
 rmse_results %>% knitr::kable()
 
-# # Reviews Per Month Distribution
-# airbnb %>%
-#   ggplot(aes(reviews_per_month)) +
-#   geom_histogram(binwidth = 0.1, color = "black", fill = "#2e4057") +
-#   scale_x_continuous(name = "Reviews Per Month",trans = pseudo_log_trans(base = 10), breaks = c(1, 10)) +
-#   ylab("Count") +
-#   ggtitle("Reviews Per Month Distribution") 
-
-# # Last Review Distribution
-# airbnb %>%
-#   ggplot(aes(last_review)) +
-#   geom_histogram(bins = 25, color = "black", fill = "#2e4057") +
-#   scale_x_continuous(name = "Days") +
-#   ylab("Count") +
-#   ggtitle("Last Review Distribution") 
-
-# # Last Review Distribution - without 0's.
-# airbnb %>%
-#   filter(last_review > 0) %>%
-#   ggplot(aes(last_review)) +
-#   geom_histogram(bins = 20, color = "black", fill = "#2e4057") +
-#   scale_x_continuous(name = "Day") +
-#   ylab("Count") +
-#   ggtitle("Last Review Distribution") 
+# # Adding the age column
+# airbnb <- airbnb %>%
+#   mutate(age = ifelse(number_of_reviews > 0, round(number_of_reviews / reviews_per_month / 12, digits = 2), NA))
 
 # # Age Distribution
 # airbnb %>%
@@ -914,6 +873,11 @@ rmse_results %>% knitr::kable()
 #     print
 # }
 
+# # Bottom 10 Words
+# words_sentiment %>%
+#   group_by(word, sentiment) %>%
+#   summarize(count = n(), .groups = "drop") %>%
+#   slice_min(count, n = 10)
 # # Top 10 Sentiment Words by Room Type
 # for(i in na.omit(unique(words_sentiment$room_type))) {
 #   print(i)
